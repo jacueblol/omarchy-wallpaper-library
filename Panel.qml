@@ -12,9 +12,26 @@ Panel {
   readonly property string helper: String(Qt.resolvedUrl("wallpaper-library")).replace(/^file:\/\//, "")
   readonly property string libraryDir: String(setting("libraryDir", "~/.config/omarchy/wallpapers/dharmx-walls-source"))
   readonly property string wallIcon: "󰸉"
+  readonly property int columns: 3
 
   property var categories: []
+  property var current: ({ path: "", category: "", name: "" })
+  property bool loaded: false
+  property string filterText: ""
+  property int cursor: 0
+
   readonly property int total: categories.reduce(function(sum, c) { return sum + c.count }, 0)
+  readonly property var shown: {
+    var needle = filterText.trim().toLowerCase()
+    if (!needle) return categories
+    return categories.filter(function(c) { return c.label.toLowerCase().indexOf(needle) !== -1 })
+  }
+  readonly property var cursorCategory: shown.length > 0 ? shown[Math.min(cursor, shown.length - 1)] : null
+  readonly property string currentLabel: {
+    for (var i = 0; i < categories.length; i++)
+      if (categories[i].id === current.category) return categories[i].label
+    return ""
+  }
 
   function refresh() {
     if (!listProc.running) listProc.running = true
@@ -25,7 +42,40 @@ Panel {
     Util.execArgv(["env", "WALLPAPER_LIBRARY_DIR=" + root.libraryDir, root.helper].concat(args))
   }
 
-  onOpenedChanged: if (opened) refresh()
+  function browse(category) { if (category) run(["pick", category.id]) }
+  function randomFrom(category) { if (category) run(["random", category.id]) }
+  function shuffle() { run(["random"]) }
+
+  function moveCursor(dx, dy) {
+    if (shown.length === 0) return
+    var next = Math.max(0, Math.min(shown.length - 1, cursor + dx + dy * columns))
+    if (dy < 0 && cursor < columns) { focusSearch(); return }
+    cursor = next
+    grid.ensureVisible(cursor)
+  }
+
+  // Start the cursor on the category holding the current wallpaper.
+  function cursorToCurrent() {
+    for (var i = 0; i < shown.length; i++) {
+      if (shown[i].id === current.category) { cursor = i; grid.ensureVisible(i); return }
+    }
+    cursor = 0
+  }
+
+  function focusSearch() { search.forceActiveFocus() }
+  function focusGrid() { keyCatcher.forceActiveFocus() }
+
+  onOpenedChanged: {
+    if (opened) {
+      filterText = ""
+      refresh()
+    }
+  }
+  onFilterTextChanged: {
+    if (search.text !== filterText) search.text = filterText
+    cursor = 0
+    list.contentY = 0
+  }
   onLibraryDirChanged: refresh()
   Component.onCompleted: refresh()
 
@@ -38,7 +88,15 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        try { root.categories = JSON.parse(text) } catch (e) { root.categories = [] }
+        try {
+          var data = JSON.parse(text)
+          root.categories = data.categories || []
+          root.current = data.current || { path: "", category: "", name: "" }
+        } catch (e) {
+          root.categories = []
+        }
+        root.loaded = true
+        root.cursorToCurrent()
       }
     }
   }
@@ -48,7 +106,7 @@ Panel {
     anchors.fill: parent
     bar: root.bar
     text: root.wallIcon
-    tooltipText: "Wallpaper Library"
+    tooltipText: root.currentLabel ? "Wallpaper Library · " + root.currentLabel : "Wallpaper Library"
     onPressed: function(b) { root.toggle() }
   }
 
@@ -59,14 +117,22 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(340))
+    contentWidth: panel.fittedContentWidth(Style.space(600))
     contentHeight: panel.fittedContentHeight(column.implicitHeight)
 
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      blocked: search.activeFocus
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
+      onActivateRequested: root.browse(root.cursorCategory)
+      onTextKey: function(t) {
+        if (t === "/") root.focusSearch()
+        else if (t === "r") root.randomFrom(root.cursorCategory)
+        else if (t === "s") root.shuffle()
+      }
 
       Column {
         id: column
@@ -75,28 +141,36 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(12)
 
+        // ---------- Hero: current wallpaper ----------
         Item {
           width: parent.width
-          implicitHeight: Math.max(heroIcon.implicitHeight, heroLabels.implicitHeight)
+          implicitHeight: preview.height
 
-          Text {
-            id: heroIcon
-            textFormat: Text.PlainText
-            text: root.wallIcon
-            color: root.bar.foreground
-            font.family: root.bar.fontFamily
-            font.pixelSize: Style.font.display
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
+          Rectangle {
+            id: preview
+            width: Style.space(160)
+            height: Math.round(width * 9 / 16)
+            radius: Style.cornerRadius
+            color: Util.alpha(root.bar.foreground, 0.08)
+            clip: true
+
+            Image {
+              anchors.fill: parent
+              source: root.current.path ? Util.fileUrl(root.current.path) : ""
+              sourceSize.width: 480
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              cache: false
+            }
           }
 
           Column {
-            id: heroLabels
-            anchors.left: heroIcon.right
+            anchors.left: preview.right
             anchors.leftMargin: Style.space(14)
-            anchors.right: parent.right
+            anchors.right: shuffleButton.left
+            anchors.rightMargin: Style.space(10)
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            spacing: Style.space(4)
 
             Text {
               text: "Wallpaper Library"
@@ -110,8 +184,9 @@ Panel {
 
             Text {
               textFormat: Text.PlainText
-              text: (root.categories.length + " categories · " + root.total + " walls").toUpperCase()
-              color: Qt.darker(root.bar.foreground, 1.4)
+              visible: root.current.name !== ""
+              text: "NOW · " + (root.currentLabel ? root.currentLabel.toUpperCase() + " · " : "") + root.current.name.replace(/[_-]+/g, " ")
+              color: Color.accent
               font.family: root.bar.fontFamily
               font.pixelSize: Style.font.caption
               font.bold: true
@@ -119,69 +194,227 @@ Panel {
               elide: Text.ElideRight
               width: parent.width
             }
+
+            Text {
+              textFormat: Text.PlainText
+              text: root.categories.length + " categories · " + root.total + " walls"
+              color: root.bar.foreground
+              opacity: 0.6
+              font.family: root.bar.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              elide: Text.ElideRight
+              width: parent.width
+            }
+          }
+
+          Button {
+            id: shuffleButton
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            iconText: "󰒝"
+            iconSize: Style.font.title
+            text: "Shuffle"
+            tooltipText: "Random wallpaper from the whole library (s)"
+            fontSize: Style.font.bodySmall
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
+            bordered: true
+            enabled: root.categories.length > 0
+            onClicked: root.shuffle()
           }
         }
 
-        Button {
+        // ---------- Search ----------
+        TextField {
+          id: search
           width: parent.width
-          iconText: "󰒝"
-          iconSize: Style.font.title
-          text: "Random wallpaper"
-          fontSize: Style.font.bodySmall
+          placeholderText: "Search categories  ( / )"
           foreground: root.bar.foreground
-          fontFamily: root.bar.fontFamily
-          verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
-          bordered: true
-          enabled: root.categories.length > 0
-          onClicked: root.run(["random"])
+          accent: Color.accent
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.body
+          onTextEdited: root.filterText = text
+          Keys.onEscapePressed: function(event) {
+            if (root.filterText) root.filterText = ""
+            root.focusGrid()
+            event.accepted = true
+          }
+          Keys.onDownPressed: function(event) { root.focusGrid(); event.accepted = true }
+          Keys.onReturnPressed: function(event) { root.browse(root.cursorCategory); event.accepted = true }
+          Keys.onEnterPressed: function(event) { root.browse(root.cursorCategory); event.accepted = true }
         }
 
-        PanelSeparator { foreground: root.bar.foreground }
-
+        // ---------- Category grid ----------
         Text {
-          visible: root.categories.length === 0
+          visible: root.shown.length === 0
           width: parent.width
+          height: Style.space(80)
+          verticalAlignment: Text.AlignVCenter
+          horizontalAlignment: Text.AlignHCenter
           wrapMode: Text.WordWrap
           textFormat: Text.PlainText
-          text: "No categories found in " + root.libraryDir
+          text: !root.loaded ? "Generating previews…"
+            : root.categories.length === 0 ? "No categories found in " + root.libraryDir
+            : "No categories match “" + root.filterText + "”"
           color: root.bar.foreground
           opacity: 0.6
           font.family: root.bar.fontFamily
           font.pixelSize: Style.font.bodySmall
         }
 
-        // Categories, scrollable once the list outgrows the panel.
         Flickable {
           id: list
-          visible: root.categories.length > 0
+          visible: root.shown.length > 0
           width: parent.width
-          height: Math.min(grid.implicitHeight, Style.space(460))
+          // Show three and a half rows so it's obvious the grid scrolls.
+          height: Math.min(grid.implicitHeight, grid.tileHeight * 3.5 + grid.rowSpacing * 3)
           contentHeight: grid.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
+          Behavior on contentY { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
           Grid {
             id: grid
             width: list.width
-            columns: 2
-            columnSpacing: Style.space(6)
-            rowSpacing: Style.space(4)
+            columns: root.columns
+            columnSpacing: Style.space(8)
+            rowSpacing: Style.space(8)
+
+            readonly property real tileWidth: (width - columnSpacing * (columns - 1)) / columns
+            readonly property real tileHeight: Math.round(tileWidth * 9 / 16)
+
+            function ensureVisible(index) {
+              var y = Math.floor(index / columns) * (tileHeight + rowSpacing)
+              if (y < list.contentY) list.contentY = y
+              else if (y + tileHeight > list.contentY + list.height) list.contentY = y + tileHeight - list.height
+            }
 
             Repeater {
-              model: root.categories
+              model: root.shown
 
-              Button {
+              Item {
+                id: tile
                 required property var modelData
-                width: (grid.width - grid.columnSpacing) / 2
-                leftAlign: true
-                text: modelData.label + "  " + modelData.count
-                fontSize: Style.font.bodySmall
-                foreground: root.bar.foreground
-                fontFamily: root.bar.fontFamily
-                onClicked: root.run(["pick", modelData.id])
+                required property int index
+                readonly property bool highlighted: root.cursor === index && !search.activeFocus
+                readonly property bool isCurrent: modelData.id === root.current.category
+
+                width: grid.tileWidth
+                height: grid.tileHeight
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: Util.alpha(root.bar.foreground, 0.08)
+                  clip: true
+
+                  Image {
+                    anchors.fill: parent
+                    source: Util.fileUrl(tile.modelData.cover)
+                    sourceSize.width: 480
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    opacity: tile.highlighted || mouse.containsMouse ? 1 : 0.78
+                    scale: tile.highlighted ? 1.04 : 1
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                    Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                  }
+
+                  // Legibility gradient behind the label.
+                  Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: parent.height * 0.55
+                    gradient: Gradient {
+                      GradientStop { position: 0.0; color: "transparent" }
+                      GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.78) }
+                    }
+                  }
+
+                  Row {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Style.space(8)
+                    spacing: Style.space(6)
+
+                    Text {
+                      id: tileLabel
+                      textFormat: Text.PlainText
+                      text: tile.modelData.label
+                      color: "white"
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                      elide: Text.ElideRight
+                      width: Math.min(implicitWidth, parent.width - countLabel.implicitWidth - parent.spacing)
+                    }
+
+                    Text {
+                      id: countLabel
+                      anchors.baseline: tileLabel.baseline
+                      textFormat: Text.PlainText
+                      text: tile.modelData.count
+                      color: "white"
+                      opacity: 0.7
+                      font.family: root.bar.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                  }
+
+                  // Marks the category the current wallpaper is from.
+                  Rectangle {
+                    visible: tile.isCurrent
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.margins: Style.space(8)
+                    width: Style.space(8)
+                    height: width
+                    radius: width / 2
+                    color: Color.accent
+                  }
+                }
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: "transparent"
+                  border.width: tile.highlighted || tile.isCurrent ? 2 : (mouse.containsMouse ? 1 : 0)
+                  border.color: tile.highlighted ? root.bar.foreground
+                    : tile.isCurrent ? Color.accent
+                    : Util.alpha(root.bar.foreground, 0.5)
+                }
+
+                MouseArea {
+                  id: mouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  acceptedButtons: Qt.LeftButton | Qt.RightButton
+                  onEntered: root.cursor = tile.index
+                  onClicked: function(event) {
+                    if (event.button === Qt.RightButton) root.randomFrom(tile.modelData)
+                    else root.browse(tile.modelData)
+                  }
+                }
               }
             }
           }
+        }
+
+        // ---------- Key hints ----------
+        Text {
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          textFormat: Text.PlainText
+          text: "↵ browse  ·  r random from category  ·  right-click random  ·  s shuffle  ·  / search"
+          color: root.bar.foreground
+          opacity: 0.45
+          font.family: root.bar.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
         }
       }
     }

@@ -3,8 +3,11 @@
 An Omarchy shell plugin for browsing a categorized wallpaper collection
 (one subfolder per category, e.g. [dharmx/walls](https://github.com/dharmx/walls)).
 
-- **Bar widget** — click the icon for a list of categories with counts.
-  Pick one to open Omarchy's image picker on it, or hit *Random wallpaper*.
+![Wallpaper Library panel](preview.png)
+
+- **Bar widget** — click the icon for a grid of categories, each with a cover
+  image and a count, plus a preview of your current wallpaper. Pick a category
+  to open Omarchy's image picker on it.
 - **Style menu** — `./wallpaper-library install-menu` writes a
   *Style › Wallpaper Library* submenu (with a Random row) into
   `~/.config/omarchy/extensions/omarchy-menu.jsonc`. Rerun it after adding
@@ -13,6 +16,20 @@ An Omarchy shell plugin for browsing a categorized wallpaper collection
 Set the library folder with the widget's `libraryDir` setting (CLI:
 `WALLPAPER_LIBRARY_DIR`). Categories open one at a time because the picker's
 IPC argument is capped at 128KB, which a whole large library exceeds.
+
+## Using it
+
+| Action | Mouse | Keyboard |
+|---|---|---|
+| Browse a category in the image picker | click a tile | arrows / `hjkl`, then `Enter` |
+| Random wallpaper from a category | right-click a tile | `r` |
+| Random wallpaper from the whole library | **Shuffle** | `s` |
+| Search categories | click the search box | `/` (`Enter` opens the first match, `Esc` clears) |
+| Close | click outside | `Esc` |
+
+The category your current wallpaper comes from is marked with an accent
+border and dot. Cover images are cached in
+`~/.cache/omarchy/wallpaper-library/covers/`.
 
 ## Wallpapers
 

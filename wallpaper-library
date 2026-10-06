@@ -1,7 +1,7 @@
 #!/bin/bash
 # Helper for the jacueblol.wallpaper-library plugin.
 #
-#   wallpaper-library list                  JSON array of categories: {id, label, count}
+#   wallpaper-library list                  JSON: {current, categories: [{id, label, count, cover}]}
 #   wallpaper-library pick <category>       open the image picker on a category, set the pick as background
 #   wallpaper-library random [category]     set a random wallpaper (from one category or the whole library)
 #   wallpaper-library install-menu          (re)write Style > Wallpaper Library rows in the Omarchy menu
@@ -50,13 +50,39 @@ category_dir() {
   printf '%s' "$dir"
 }
 
+cover_dir=${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/wallpaper-library/covers
+
+first_image() {
+  images_in "$1" -print0 | sort -z | head -zn 1 | tr -d '\0'
+}
+
+# One 16:9 cover per category, from its first image. Missing or stale covers
+# are built in parallel, one single-threaded vips run each.
+build_covers() {
+  local name source cover
+  mkdir -p "$cover_dir"
+  while IFS= read -r name; do
+    source=$(first_image "$library/$name")
+    cover="$cover_dir/$name.jpg"
+    [[ -n $source && ( ! -f $cover || $source -nt $cover ) ]] && printf '%s\0%s\0' "$source" "$cover"
+  done < <(categories) | xargs -0 -r -n 2 -P "$(nproc)" bash -c \
+    'VIPS_CONCURRENCY=1 vipsthumbnail "$1" --size 480x270 --smartcrop=attention -o "$2.tmp.jpg[Q=85,strip]" && mv -f "$2.tmp.jpg" "$2"' _ \
+    >/dev/null 2>&1
+}
+
 list() {
-  local name
+  local name current category=""
+  build_covers
+  current=$(readlink -f ~/.local/state/omarchy/current/background 2>/dev/null)
+  [[ $current == "$(readlink -f "$library")"/*/* ]] && category=$(basename "$(dirname "$current")")
+
   categories | while IFS= read -r name; do
     jq -nc --arg id "$name" --arg label "$(label_for "$name")" \
       --argjson count "$(images_in "$library/$name" -printf '.' | wc -c)" \
-      '{id: $id, label: $label, count: $count}'
-  done | jq -sc .
+      --arg cover "$cover_dir/$name.jpg" \
+      '{id: $id, label: $label, count: $count, cover: $cover}'
+  done | jq -sc --arg path "$current" --arg category "$category" \
+    '{current: {path: $path, category: $category, name: ($path | split("/") | last | sub("\\.[^.]*$"; ""))}, categories: .}'
 }
 
 pick() {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "jacueblol.wallpaper-library",
   "name": "Wallpaper Library",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "jacueblol",
   "license": "MIT",
   "description": "Browse a categorized wallpaper library (one folder per category) and set the background with Omarchy's image picker.",
