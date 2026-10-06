@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "jacueblol.wallpaper-library",
+  "name": "Wallpaper Library",
+  "version": "1.0.0",
+  "author": "jacueblol",
+  "license": "MIT",
+  "description": "Browse a categorized wallpaper library (one folder per category) and set the background with Omarchy's image picker.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Wallpaper Library",
+    "description": "Pick a category, then a wallpaper",
+    "category": "Appearance",
+    "aliases": ["wallpapers", "walls"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "libraryDir": "~/.config/omarchy/wallpapers/dharmx-walls-source"
+    },
+    "schema": [
+      { "key": "libraryDir", "type": "string", "label": "Library folder", "defaultValue": "~/.config/omarchy/wallpapers/dharmx-walls-source", "description": "Each subfolder becomes a category." }
+    ]
+  }
+}

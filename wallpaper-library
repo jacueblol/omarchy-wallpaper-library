@@ -1,0 +1,134 @@
+#!/bin/bash
+# Helper for the jacueblol.wallpaper-library plugin.
+#
+#   wallpaper-library list                  JSON array of categories: {id, label, count}
+#   wallpaper-library pick <category>       open the image picker on a category, set the pick as background
+#   wallpaper-library random [category]     set a random wallpaper (from one category or the whole library)
+#   wallpaper-library install-menu          (re)write Style > Wallpaper Library rows in the Omarchy menu
+#   wallpaper-library uninstall-menu        remove those rows again
+#
+# The library folder comes from $WALLPAPER_LIBRARY_DIR, falling back to the
+# dharmx/walls checkout. Each subfolder is a category.
+#
+# Categories are opened one at a time on purpose: omarchy-menu-images hands
+# the picker every row in one IPC argument, which Linux caps at 128KB
+# (MAX_ARG_STRLEN). The whole library base64-encodes past that and silently
+# fails to open, while every single category stays well under it.
+
+set -o pipefail
+
+self=$(readlink -f "${BASH_SOURCE[0]}")
+library=${WALLPAPER_LIBRARY_DIR:-$HOME/.config/omarchy/wallpapers/dharmx-walls-source}
+library=${library/#\~/$HOME}
+menu_file=$HOME/.config/omarchy/extensions/omarchy-menu.jsonc
+begin_marker='  // >>> jacueblol.wallpaper-library (generated: wallpaper-library install-menu)'
+end_marker='  // <<< jacueblol.wallpaper-library'
+
+images_in() {
+  find -L "$1" -maxdepth 1 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' \) "${@:2}" 2>/dev/null
+}
+
+categories() {
+  local dir
+  for dir in "$library"/*/; do
+    dir=${dir%/}
+    [[ -n $(images_in "$dir" -print -quit) ]] && printf '%s\n' "${dir##*/}"
+  done
+}
+
+label_for() {
+  local name=${1//[-_]/ }
+  printf '%s' "${name^}"
+}
+
+category_dir() {
+  local dir="$library/$1"
+  if [[ -z $1 || $1 == */* || ! -d $dir ]]; then
+    echo "Unknown category: $1" >&2
+    exit 1
+  fi
+  printf '%s' "$dir"
+}
+
+list() {
+  local name
+  categories | while IFS= read -r name; do
+    jq -nc --arg id "$name" --arg label "$(label_for "$name")" \
+      --argjson count "$(images_in "$library/$name" -printf '.' | wc -c)" \
+      '{id: $id, label: $label, count: $count}'
+  done | jq -sc .
+}
+
+pick() {
+  local dir background
+  dir=$(category_dir "$1") || exit 1
+  background=$(omarchy-menu-images --filterable \
+    --selected "$(readlink -f ~/.local/state/omarchy/current/background 2>/dev/null)" "$dir")
+  [[ -n $background ]] && omarchy-theme-bg-set "$background"
+}
+
+random() {
+  local dir=$library background
+  [[ -n $1 ]] && { dir=$(category_dir "$1") || exit 1; }
+  if [[ -n $1 ]]; then
+    background=$(images_in "$dir" | shuf -n 1)
+  else
+    background=$(find -L "$dir" -mindepth 2 -maxdepth 2 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | shuf -n 1)
+  fi
+  [[ -n $background ]] && omarchy-theme-bg-set "$background"
+}
+
+strip_menu() {
+  # Drop our generated block, plus the hand-written style.wallpaper-library
+  # rows this plugin replaces.
+  awk -v b="$begin_marker" -v e="$end_marker" '
+    $0 == b { skip = 1; next }
+    $0 == e { skip = 0; next }
+    skip { next }
+    /^  "style\.wallpaper-library[".]/ { next }
+    { print }
+  ' "$menu_file"
+}
+
+install_menu() {
+  [[ -f $menu_file ]] || { echo "Missing $menu_file" >&2; exit 1; }
+  local stripped block name id
+  stripped=$(strip_menu) || exit 1
+
+  block="$begin_marker"$'\n'
+  block+='  "style.wallpaper-library": {"icon":"","label":"Wallpaper Library","aliases":["wallpapers","walls","library"]},'$'\n'
+  block+="  \"style.wallpaper-library.random\": {\"icon\":\"\",\"label\":\"Random\",\"description\":\"Any wallpaper from the library\",\"action\":\"$self random\"},"$'\n'
+  while IFS= read -r name; do
+    id=$(printf '%s' "$name" | tr -c 'A-Za-z0-9\n-' '-')
+    block+="  \"style.wallpaper-library.$id\": {\"icon\":\"\",\"label\":\"$(label_for "$name")\",\"action\":\"$self pick '$name'\"},"$'\n'
+  done < <(categories)
+  block+="$end_marker"
+
+  cp "$menu_file" "$menu_file.bak.$(date +%s)"
+  # Insert before the final closing brace of the JSONC object.
+  printf '%s\n' "$stripped" | awk -v block="$block" '
+    { lines[NR] = $0 }
+    END {
+      for (last = NR; last > 0 && lines[last] !~ /^}/; last--) ;
+      for (i = 1; i < last; i++) print lines[i]
+      print block
+      for (i = last; i <= NR; i++) print lines[i]
+    }
+  ' >"$menu_file.tmp" && mv "$menu_file.tmp" "$menu_file"
+  echo "Wrote $(categories | wc -l) categories to $menu_file"
+}
+
+uninstall_menu() {
+  [[ -f $menu_file ]] || exit 0
+  cp "$menu_file" "$menu_file.bak.$(date +%s)"
+  strip_menu >"$menu_file.tmp" && mv "$menu_file.tmp" "$menu_file"
+}
+
+case "$1" in
+  list) list ;;
+  pick) pick "$2" ;;
+  random) random "$2" ;;
+  install-menu) install_menu ;;
+  uninstall-menu) uninstall_menu ;;
+  *) sed -n '2,9p' "$self" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac
