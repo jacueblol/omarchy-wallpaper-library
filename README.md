@@ -1,21 +1,58 @@
 # Wallpaper Library
 
-An Omarchy shell plugin for browsing a categorized wallpaper collection
-(one subfolder per category, e.g. [dharmx/walls](https://github.com/dharmx/walls)).
+Browse a big, categorized wallpaper collection from the Omarchy bar. Each
+category gets a cover tile; pick one to open Omarchy's image picker on it, or
+grab a random wallpaper from a category or the whole library.
+
+Built around [**dharmx/walls**](https://github.com/dharmx/walls), but works
+with any folder that has one subfolder per category.
 
 ![Wallpaper Library panel](preview.png)
 
-- **Bar widget** — click the icon for a grid of categories, each with a cover
-  image and a count, plus a preview of your current wallpaper. Pick a category
-  to open Omarchy's image picker on it.
-- **Style menu** — `./wallpaper-library install-menu` writes a
-  *Style › Wallpaper Library* submenu (with a Random row) into
-  `~/.config/omarchy/extensions/omarchy-menu.jsonc`. Rerun it after adding
-  categories; `uninstall-menu` removes it.
+## Features
 
-Set the library folder with the widget's `libraryDir` setting (CLI:
-`WALLPAPER_LIBRARY_DIR`). Categories open one at a time because the picker's
-IPC argument is capped at 128KB, which a whole large library exceeds.
+- **Category grid** with cover images and wallpaper counts, plus a preview of
+  your current wallpaper. Its category is marked with an accent border and dot.
+- **Image picker per category** using Omarchy's own picker, so selecting a
+  wallpaper works exactly like *Style › Background*.
+- **Random picks** from one category or the whole library.
+- **Search and keyboard navigation**.
+- **Guided download** of only the dharmx/walls categories you want (the full
+  collection is several GB).
+- Optional **Style › Wallpaper Library** submenu in the Omarchy menu.
+
+## Install
+
+```
+omarchy plugin add https://github.com/jacueblol/omarchy-wallpaper-library
+```
+
+Enable it when asked (or later with
+`omarchy plugin enable io.github.jacueblol.wallpaper-library`) and the icon
+appears in the bar.
+
+### Get wallpapers
+
+Open the panel. If there's no library yet, click **Download wallpapers**: a
+terminal opens where you tick the dharmx/walls categories you want, and only
+those are downloaded to `~/.config/omarchy/wallpapers/dharmx-walls`. Run it
+again from the same button (or `wallpaper-library download`) to add or remove
+categories.
+
+Already have wallpapers? Set the widget's **Library folder** setting to any
+folder containing one subfolder per category.
+
+### Optional: Style menu entry
+
+```
+~/.config/omarchy/plugins/io.github.jacueblol.wallpaper-library/wallpaper-library install-menu
+```
+
+This adds *Style › Wallpaper Library* to the Omarchy menu, with a row per
+category and a Random row. It edits
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`, only between its own
+marker comments, and saves a timestamped backup first. Nothing is added to the
+menu unless you run this. Rerun it after adding categories.
 
 ## Using it
 
@@ -27,28 +64,48 @@ IPC argument is capped at 128KB, which a whole large library exceeds.
 | Search categories | click the search box | `/` (`Enter` opens the first match, `Esc` clears) |
 | Close | click outside | `Esc` |
 
-The category your current wallpaper comes from is marked with an accent
-border and dot. Cover images are cached in
-`~/.cache/omarchy/wallpaper-library/covers/`.
-
-## Wallpapers
-
-This plugin is built around [**dharmx/walls**](https://github.com/dharmx/walls),
-a large wallpaper collection already sorted into category folders (anime,
-nature, nord, gruvbox, …). The wallpapers belong to dharmx/walls and their
-original artists, so check that repo for credits and licensing; none are
-included here.
-
-To use it, clone it into the plugin's default library folder:
+The same actions are available from a terminal:
 
 ```
-git clone --depth 1 https://github.com/dharmx/walls ~/.config/omarchy/wallpapers/dharmx-walls-source
+wallpaper-library list | pick <category> | random [category] | download | install-menu | uninstall-menu
 ```
 
-Any other folder of category subfolders works too. Point `libraryDir` at it.
-
-## CLI
+## Remove
 
 ```
-wallpaper-library list | pick <category> | random [category] | install-menu | uninstall-menu
+~/.config/omarchy/plugins/io.github.jacueblol.wallpaper-library/wallpaper-library uninstall-menu   # only if you ran install-menu
+omarchy plugin remove io.github.jacueblol.wallpaper-library
+rm -rf ~/.cache/omarchy/wallpaper-library                                                   # cover thumbnails
 ```
+
+Downloaded wallpapers stay in `~/.config/omarchy/wallpapers/dharmx-walls`;
+delete that folder too if you don't want them.
+
+## Dependencies
+
+Everything it uses already ships with Omarchy: `jq`, `libvips`
+(`vipsthumbnail`, for cover images), `git` and `gum` (download only),
+`libnotify`, and the Omarchy commands `omarchy-menu-images` and
+`omarchy-theme-bg-set`.
+
+No sudo, no background services, and no network access except when you run
+the download.
+
+## Notes
+
+- Categories open one at a time because Omarchy's image picker receives its
+  whole list in one argument, which Linux caps at 128 KB. A category with
+  more than roughly 500 images can exceed that; you'll get a notification
+  saying so. Split such folders into smaller ones.
+- Cover images are cached in `~/.cache/omarchy/wallpaper-library/`.
+
+## Credits
+
+Wallpapers come from [dharmx/walls](https://github.com/dharmx/walls), a
+community-collected set; the images belong to their original artists. None
+are included in this repository. The preview screenshot shows a few of them
+as thumbnails.
+
+## License
+
+[MIT](LICENSE)

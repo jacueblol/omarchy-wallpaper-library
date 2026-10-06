@@ -6,17 +6,21 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "jacueblol.wallpaper-library"
-  ipcTarget: "jacueblol.wallpaper-library"
+  moduleName: "io.github.jacueblol.wallpaper-library"
+  ipcTarget: "io.github.jacueblol.wallpaper-library"
 
   readonly property string helper: String(Qt.resolvedUrl("wallpaper-library")).replace(/^file:\/\//, "")
-  readonly property string libraryDir: String(setting("libraryDir", "~/.config/omarchy/wallpapers/dharmx-walls-source"))
+  // Empty means the helper's default (~/.config/omarchy/wallpapers/dharmx-walls).
+  readonly property string libraryDir: String(setting("libraryDir", ""))
+  readonly property var helperArgv: libraryDir ? ["env", "WALLPAPER_LIBRARY_DIR=" + libraryDir, helper] : [helper]
   readonly property string wallIcon: "󰸉"
   readonly property int columns: 3
 
   property var categories: []
   property var current: ({ path: "", category: "", name: "" })
   property bool loaded: false
+  property bool libraryExists: true
+  property string libraryPath: ""
   property string filterText: ""
   property int cursor: 0
 
@@ -39,7 +43,14 @@ Panel {
 
   function run(args) {
     root.close()
-    Util.execArgv(["env", "WALLPAPER_LIBRARY_DIR=" + root.libraryDir, root.helper].concat(args))
+    Util.execArgv(root.helperArgv.concat(args))
+  }
+
+  // gum needs a terminal, so the downloader runs in Omarchy's floating one.
+  function download() {
+    root.close()
+    Util.execArgv(["omarchy-launch-floating-terminal-with-presentation",
+      root.helperArgv.map(Util.shellQuote).join(" ") + " download"])
   }
 
   function browse(category) { if (category) run(["pick", category.id]) }
@@ -84,7 +95,7 @@ Panel {
 
   Process {
     id: listProc
-    command: ["env", "WALLPAPER_LIBRARY_DIR=" + root.libraryDir, root.helper, "list"]
+    command: root.helperArgv.concat(["list"])
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
@@ -92,6 +103,8 @@ Panel {
           var data = JSON.parse(text)
           root.categories = data.categories || []
           root.current = data.current || { path: "", category: "", name: "" }
+          root.libraryExists = data.exists !== false
+          root.libraryPath = data.library || ""
         } catch (e) {
           root.categories = []
         }
@@ -220,7 +233,7 @@ Panel {
             fontFamily: root.bar.fontFamily
             verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
             bordered: true
-            enabled: root.categories.length > 0
+            visible: root.categories.length > 0
             onClicked: root.shuffle()
           }
         }
@@ -228,6 +241,7 @@ Panel {
         // ---------- Search ----------
         TextField {
           id: search
+          visible: root.categories.length > 0
           width: parent.width
           placeholderText: "Search categories  ( / )"
           foreground: root.bar.foreground
@@ -245,22 +259,60 @@ Panel {
           Keys.onEnterPressed: function(event) { root.browse(root.cursorCategory); event.accepted = true }
         }
 
-        // ---------- Category grid ----------
-        Text {
+        // ---------- Empty / first-run states ----------
+        Column {
           visible: root.shown.length === 0
           width: parent.width
-          height: Style.space(80)
-          verticalAlignment: Text.AlignVCenter
-          horizontalAlignment: Text.AlignHCenter
-          wrapMode: Text.WordWrap
-          textFormat: Text.PlainText
-          text: !root.loaded ? "Generating previews…"
-            : root.categories.length === 0 ? "No categories found in " + root.libraryDir
-            : "No categories match “" + root.filterText + "”"
-          color: root.bar.foreground
-          opacity: 0.6
-          font.family: root.bar.fontFamily
-          font.pixelSize: Style.font.bodySmall
+          spacing: Style.space(10)
+          topPadding: Style.space(16)
+          bottomPadding: Style.space(16)
+
+          readonly property bool needsLibrary: root.loaded && root.categories.length === 0
+
+          Text {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: !root.loaded ? "Generating previews…"
+              : !root.libraryExists ? "No wallpaper library yet"
+              : root.categories.length === 0 ? "No categories with images in this folder"
+              : "No categories match “" + root.filterText + "”"
+            color: root.bar.foreground
+            font.family: root.bar.fontFamily
+            font.pixelSize: parent.needsLibrary ? Style.font.title : Style.font.bodySmall
+            font.bold: parent.needsLibrary
+            opacity: parent.needsLibrary ? 1 : 0.6
+          }
+
+          Text {
+            visible: parent.needsLibrary
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: "Download categories from dharmx/walls into "
+              + root.libraryPath.replace(Quickshell.env("HOME"), "~")
+              + ", or set this widget's Library folder to any folder of category subfolders."
+            color: root.bar.foreground
+            opacity: 0.6
+            font.family: root.bar.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Button {
+            visible: parent.needsLibrary
+            anchors.horizontalCenter: parent.horizontalCenter
+            iconText: "󰇚"
+            iconSize: Style.font.title
+            text: "Download wallpapers"
+            fontSize: Style.font.bodySmall
+            foreground: root.bar.foreground
+            fontFamily: root.bar.fontFamily
+            verticalPadding: Style.spacing.controlPaddingY + Style.space(2)
+            bordered: true
+            onClicked: root.download()
+          }
         }
 
         Flickable {
@@ -406,6 +458,7 @@ Panel {
 
         // ---------- Key hints ----------
         Text {
+          visible: root.categories.length > 0
           width: parent.width
           horizontalAlignment: Text.AlignHCenter
           textFormat: Text.PlainText

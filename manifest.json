@@ -1,11 +1,12 @@
 {
   "schemaVersion": 1,
-  "id": "jacueblol.wallpaper-library",
+  "id": "io.github.jacueblol.wallpaper-library",
   "name": "Wallpaper Library",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "jacueblol",
   "license": "MIT",
-  "description": "Browse a categorized wallpaper library (one folder per category) and set the background with Omarchy's image picker.",
+  "homepage": "https://github.com/jacueblol/omarchy-wallpaper-library",
+  "description": "Browse a categorized wallpaper library like dharmx/walls from the bar: cover tiles per category, search, keyboard navigation, random picks, and Omarchy's image picker.",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "Panel.qml"
@@ -18,10 +19,10 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "libraryDir": "~/.config/omarchy/wallpapers/dharmx-walls-source"
+      "libraryDir": ""
     },
     "schema": [
-      { "key": "libraryDir", "type": "string", "label": "Library folder", "defaultValue": "~/.config/omarchy/wallpapers/dharmx-walls-source", "description": "Each subfolder becomes a category." }
+      { "key": "libraryDir", "type": "string", "label": "Library folder", "defaultValue": "", "description": "Folder with one subfolder per category. Leave empty for ~/.config/omarchy/wallpapers/dharmx-walls." }
     ]
   }
 }
