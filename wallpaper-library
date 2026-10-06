@@ -136,7 +136,11 @@ random() {
     dir=$(category_dir "$1") || return 1
     background=$(images_in "$dir" | shuf -n 1)
   else
-    background=$(find -L "$library" -mindepth 2 -maxdepth 2 -type f \( "${image_exts[@]}" \) -not -path '*/.*' 2>/dev/null | shuf -n 1)
+    # Match hidden folders (like .git) relative to the library, not its own path,
+    # which often contains one itself (~/.config/...).
+    background=$(cd "$library" 2>/dev/null &&
+      find -L . -mindepth 2 -maxdepth 2 -type f \( "${image_exts[@]}" \) -not -path './.*' 2>/dev/null | shuf -n 1)
+    [[ -n $background ]] && background="$library/${background#./}"
   fi
   if [[ -z $background ]]; then
     notify "No wallpapers found" "$library"
